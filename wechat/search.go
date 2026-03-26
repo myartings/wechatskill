@@ -13,7 +13,11 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
-var timeConvertRe = regexp.MustCompile(`timeConvert\('(\d+)'\)`)
+var (
+	timeConvertRe  = regexp.MustCompile(`timeConvert\('(\d+)'\)`)
+	createTimeRe   = regexp.MustCompile(`create_time:\s*JsDecode\('([^']+)'\)`)
+	oriCreateTimeRe = regexp.MustCompile(`ori_create_time:\s*'(\d+)'`)
+)
 
 // SearchArticles searches for WeChat articles via Sogou WeChat search.
 // type=2 searches articles.
@@ -125,6 +129,19 @@ func (c *Client) fetchRealPublishDate(articleURL string) string {
 		return m[1]
 	}
 
+	// Try create_time: JsDecode('2026-03-25 14:19')
+	if m := createTimeRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+		return m[1]
+	}
+
+	// Try ori_create_time: '1770877140' (unix timestamp)
+	if m := oriCreateTimeRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+		ts, err := strconv.ParseInt(m[1], 10, 64)
+		if err == nil {
+			return time.Unix(ts, 0).Format("2006-01-02 15:04")
+		}
+	}
+
 	// Try #publish_time element
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
@@ -155,7 +172,10 @@ func parseArticleResults(body []byte) ([]Article, error) {
 			article.URL = href
 		}
 
-		accountEl := s.Find("div.s-p a[data-z]")
+		accountEl := s.Find("span.all-time-y2")
+		if accountEl.Length() == 0 {
+			accountEl = s.Find("div.s-p a[data-z]")
+		}
 		if accountEl.Length() == 0 {
 			accountEl = s.Find("div.s-p a")
 		}
@@ -168,12 +188,7 @@ func parseArticleResults(body []byte) ([]Article, error) {
 		if dateEl.Length() == 0 {
 			dateEl = s.Find("div.s-p span")
 		}
-		// Use Html() instead of Text() to capture <script>timeConvert('...')</script> content
-		if dateHtml, err := dateEl.Html(); err == nil {
-			article.PublishDate = strings.TrimSpace(dateHtml)
-		} else {
-			article.PublishDate = strings.TrimSpace(dateEl.Text())
-		}
+		article.PublishDate = strings.TrimSpace(dateEl.Text())
 
 		if article.Title != "" {
 			articles = append(articles, article)
