@@ -23,12 +23,35 @@ type Client struct {
 
 func NewClient() *Client {
 	jar, _ := cookiejar.New(nil)
-	return &Client{
+	c := &Client{
 		httpClient: &http.Client{
 			Jar:     jar,
 			Timeout: 15 * time.Second,
 		},
 	}
+	// Warm up: visit Sogou WeChat search homepage to collect initial cookies
+	// (SNUID, SUID, etc.) that are needed for account searches (type=1).
+	c.warmup()
+	return c
+}
+
+// warmup visits the Sogou WeChat search homepage to populate the cookie jar.
+func (c *Client) warmup() {
+	req, err := http.NewRequest("GET", SogouBaseURL, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("User-Agent", UserAgent)
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+	req.Header.Set("Accept-Language", "zh-CN,zh;q=0.9,en;q=0.8")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return
+	}
+	defer resp.Body.Close()
+	// Drain body so the connection can be reused; cookies are already stored in the jar.
+	io.Copy(io.Discard, resp.Body)
 }
 
 func (c *Client) get(url string) ([]byte, error) {

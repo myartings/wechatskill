@@ -100,6 +100,23 @@ func (a *AppServer) handleSearchAccounts(ctx context.Context, req *mcp.CallToolR
 	return textResult(toJSON(accounts)), nil
 }
 
+func (a *AppServer) handleGetAccountArticles(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+	args := parseArgs(req)
+	accountName := getStringArg(args, "account_name")
+	if accountName == "" {
+		return errorResult(fmt.Errorf("account_name is required")), nil
+	}
+
+	articles, err := a.service.GetAccountArticles(ctx, accountName)
+	if err != nil {
+		return errorResult(err), nil
+	}
+	if len(articles) == 0 {
+		return textResult("No articles found for this account."), nil
+	}
+	return textResult(toJSON(articles)), nil
+}
+
 func (a *AppServer) handleGetArticleContent(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 	args := parseArgs(req)
 	url := getStringArg(args, "url")

@@ -15,6 +15,7 @@ func (a *AppServer) setupRoutes(r *gin.Engine) {
 		api.GET("/status", a.apiStatus)
 		api.POST("/search/articles", a.apiSearchArticles)
 		api.POST("/search/accounts", a.apiSearchAccounts)
+		api.POST("/account/articles", a.apiGetAccountArticles)
 		api.POST("/article/content", a.apiGetArticleContent)
 	}
 }
@@ -61,6 +62,22 @@ func (a *AppServer) apiSearchAccounts(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"data": accounts})
+}
+
+func (a *AppServer) apiGetAccountArticles(c *gin.Context) {
+	var req struct {
+		AccountName string `json:"account_name"`
+	}
+	if err := c.BindJSON(&req); err != nil || req.AccountName == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "account_name is required"})
+		return
+	}
+	articles, err := a.service.GetAccountArticles(c.Request.Context(), req.AccountName)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"data": articles})
 }
 
 func (a *AppServer) apiGetArticleContent(c *gin.Context) {

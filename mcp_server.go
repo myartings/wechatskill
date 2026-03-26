@@ -44,6 +44,14 @@ func newMCPServer(app *AppServer) *mcp.Server {
 	}, app.handleSearchAccounts)
 
 	s.AddTool(&mcp.Tool{
+		Name:        "get_account_articles",
+		Description: "Get recent articles from a specific WeChat official account by its name. First searches for the account, then fetches its profile page to extract the article list.",
+		InputSchema: inputSchema(map[string]any{
+			"account_name": map[string]any{"type": "string", "description": "The name of the WeChat official account"},
+		}, []string{"account_name"}),
+	}, app.handleGetAccountArticles)
+
+	s.AddTool(&mcp.Tool{
 		Name:        "get_article_content",
 		Description: "Get the full content of a WeChat article by its URL. Extracts title, author, publish date, and full text content.",
 		InputSchema: inputSchema(map[string]any{

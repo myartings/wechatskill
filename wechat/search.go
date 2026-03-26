@@ -123,6 +123,85 @@ func fixDate(raw string) string {
 	return raw
 }
 
+// GetAccountArticles searches for articles from a specific WeChat official account.
+// It first searches for the account by name, then fetches its profile page to extract recent articles.
+func (c *Client) GetAccountArticles(ctx context.Context, accountName string) ([]Article, error) {
+	// Step 1: Search for the account to get its profile URL
+	accounts, err := c.SearchAccounts(ctx, accountName, 1)
+	if err != nil {
+		return nil, fmt.Errorf("search account: %w", err)
+	}
+	if len(accounts) == 0 {
+		return nil, fmt.Errorf("account %q not found", accountName)
+	}
+
+	// Use the first matching account
+	account := accounts[0]
+	if account.ProfileURL == "" {
+		return nil, fmt.Errorf("no profile URL found for account %q", accountName)
+	}
+
+	// Step 2: Fetch the account profile page
+	body, err := c.get(account.ProfileURL)
+	if err != nil {
+		return nil, fmt.Errorf("fetch account profile: %w", err)
+	}
+
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("parse profile HTML: %w", err)
+	}
+
+	var articles []Article
+
+	// Parse recent articles from the profile page
+	// Sogou account profile page lists recent articles in various layouts
+	doc.Find("ul.news-list li, ul.news-list2 li, div.txt-box").Each(func(i int, s *goquery.Selection) {
+		article := Article{}
+
+		titleEl := s.Find("h4 a")
+		if titleEl.Length() == 0 {
+			titleEl = s.Find("h3 a")
+		}
+		if titleEl.Length() == 0 {
+			titleEl = s.Find("a[target='_blank']").First()
+		}
+		article.Title = strings.TrimSpace(titleEl.Text())
+		if href, exists := titleEl.Attr("href"); exists {
+			article.URL = fixURL(href)
+		}
+
+		article.AccountName = account.Name
+
+		summaryEl := s.Find("p.txt-info, p.txt-desc")
+		article.Summary = strings.TrimSpace(summaryEl.Text())
+
+		dateEl := s.Find("span.s2, span.date")
+		article.PublishDate = fixDate(strings.TrimSpace(dateEl.Text()))
+
+		if article.Title != "" {
+			articles = append(articles, article)
+		}
+	})
+
+	// Fallback: try script-embedded article data (some profile pages use JS rendering)
+	if len(articles) == 0 {
+		doc.Find("a[uigs]").Each(func(i int, s *goquery.Selection) {
+			article := Article{}
+			article.Title = strings.TrimSpace(s.Text())
+			if href, exists := s.Attr("href"); exists {
+				article.URL = fixURL(href)
+			}
+			article.AccountName = account.Name
+			if article.Title != "" {
+				articles = append(articles, article)
+			}
+		})
+	}
+
+	return articles, nil
+}
+
 // SearchAccounts searches for WeChat official accounts via Sogou WeChat search.
 // type=1 searches accounts.
 func (c *Client) SearchAccounts(ctx context.Context, keyword string, page int) ([]Account, error) {
