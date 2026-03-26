@@ -60,47 +60,31 @@ func fixDate(raw string) string {
 }
 
 // GetAccountArticles searches for recent articles from a specific WeChat official account.
-// It uses Sogou article search (type=2) with the account name as keyword and a time
-// range filter, then filters results to only include articles from the matching account.
-// If not enough results are found in the recent time range, it progressively expands.
+// It uses Sogou article search (type=2) with the account name as keyword,
+// then filters results to only include articles from the matching account.
 func (c *Client) GetAccountArticles(ctx context.Context, accountName string) ([]Article, error) {
-	// Sogou time range filters: 1=一天内, 2=一周内, 3=一月内, 0=不限
-	// Try progressively wider time ranges to find enough recent articles.
-	timeRanges := []string{"2", "3", "0"}
+	allArticles, err := c.SearchArticles(ctx, accountName, 1)
+	if err != nil {
+		return nil, fmt.Errorf("search articles for account: %w", err)
+	}
 
+	// Filter to only keep articles from the target account
+	var matched []Article
 	target := strings.ToLower(accountName)
-
-	for _, tsn := range timeRanges {
-		searchURL := fmt.Sprintf("%s/weixin?type=2&query=%s&page=1&tsn=%s",
-			SogouBaseURL, url.QueryEscape(accountName), tsn)
-
-		body, err := c.get(searchURL)
-		if err != nil {
-			return nil, fmt.Errorf("search articles for account: %w", err)
-		}
-
-		allArticles, err := parseArticleResults(body)
-		if err != nil {
-			return nil, err
-		}
-
-		// Filter to only keep articles from the target account
-		var matched []Article
-		for _, a := range allArticles {
-			name := strings.ToLower(a.AccountName)
-			if name == target ||
-				strings.Contains(name, target) ||
-				strings.Contains(target, name) {
-				matched = append(matched, a)
-			}
-		}
-
-		if len(matched) > 0 {
-			return matched, nil
+	for _, a := range allArticles {
+		name := strings.ToLower(a.AccountName)
+		if name == target ||
+			strings.Contains(name, target) ||
+			strings.Contains(target, name) {
+			matched = append(matched, a)
 		}
 	}
 
-	return nil, fmt.Errorf("no articles found for account %q", accountName)
+	// If strict matching found nothing, return all results
+	if len(matched) == 0 {
+		return allArticles, nil
+	}
+	return matched, nil
 }
 
 // parseArticleResults extracts articles from a Sogou search result HTML page.
@@ -134,7 +118,12 @@ func parseArticleResults(body []byte) ([]Article, error) {
 		if dateEl.Length() == 0 {
 			dateEl = s.Find("div.s-p span")
 		}
-		article.PublishDate = strings.TrimSpace(dateEl.Text())
+		// Use Html() instead of Text() to capture <script>timeConvert('...')</script> content
+		if dateHtml, err := dateEl.Html(); err == nil {
+			article.PublishDate = strings.TrimSpace(dateHtml)
+		} else {
+			article.PublishDate = strings.TrimSpace(dateEl.Text())
+		}
 
 		if article.Title != "" {
 			articles = append(articles, article)
