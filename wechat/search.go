@@ -29,71 +29,7 @@ func (c *Client) SearchArticles(ctx context.Context, keyword string, page int) (
 		return nil, fmt.Errorf("search articles: %w", err)
 	}
 
-	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
-	if err != nil {
-		return nil, fmt.Errorf("parse HTML: %w", err)
-	}
-
-	var articles []Article
-
-	doc.Find("div.txt-box").Each(func(i int, s *goquery.Selection) {
-		article := Article{}
-
-		// Title and URL
-		titleEl := s.Find("h3 a")
-		article.Title = strings.TrimSpace(titleEl.Text())
-		if href, exists := titleEl.Attr("href"); exists {
-			article.URL = href
-		}
-
-		// Account name
-		accountEl := s.Find("div.s-p a[data-z]")
-		if accountEl.Length() == 0 {
-			accountEl = s.Find("div.s-p a")
-		}
-		article.AccountName = strings.TrimSpace(accountEl.Text())
-
-		// Summary
-		summaryEl := s.Find("p.txt-info")
-		article.Summary = strings.TrimSpace(summaryEl.Text())
-
-		// Publish date
-		dateEl := s.Find("span.s2")
-		if dateEl.Length() == 0 {
-			dateEl = s.Find("div.s-p span")
-		}
-		article.PublishDate = strings.TrimSpace(dateEl.Text())
-
-		if article.Title != "" {
-			articles = append(articles, article)
-		}
-	})
-
-	// Fallback: try alternative selector for news-box layout
-	if len(articles) == 0 {
-		doc.Find("ul.news-list li").Each(func(i int, s *goquery.Selection) {
-			article := Article{}
-			titleEl := s.Find("h3 a")
-			article.Title = strings.TrimSpace(titleEl.Text())
-			if href, exists := titleEl.Attr("href"); exists {
-				article.URL = href
-			}
-			article.Summary = strings.TrimSpace(s.Find("p.txt-info").Text())
-			article.AccountName = strings.TrimSpace(s.Find("a.account").Text())
-
-			if article.Title != "" {
-				articles = append(articles, article)
-			}
-		})
-	}
-
-	// Post-process: fix relative URLs and JS date strings
-	for i := range articles {
-		articles[i].URL = fixURL(articles[i].URL)
-		articles[i].PublishDate = fixDate(articles[i].PublishDate)
-	}
-
-	return articles, nil
+	return parseArticleResults(body)
 }
 
 // fixURL converts relative Sogou URLs to absolute.
@@ -124,33 +60,112 @@ func fixDate(raw string) string {
 }
 
 // GetAccountArticles searches for recent articles from a specific WeChat official account.
-// It uses Sogou article search (type=2) with the account name as keyword,
-// then filters results to only include articles from the matching account.
+// It uses Sogou article search (type=2) with the account name as keyword and a time
+// range filter, then filters results to only include articles from the matching account.
+// If not enough results are found in the recent time range, it progressively expands.
 func (c *Client) GetAccountArticles(ctx context.Context, accountName string) ([]Article, error) {
-	// Search articles using the account name as keyword — this returns
-	// more recent results than scraping the Sogou profile page.
-	allArticles, err := c.SearchArticles(ctx, accountName, 1)
-	if err != nil {
-		return nil, fmt.Errorf("search articles for account: %w", err)
-	}
+	// Sogou time range filters: 1=一天内, 2=一周内, 3=一月内, 0=不限
+	// Try progressively wider time ranges to find enough recent articles.
+	timeRanges := []string{"2", "3", "0"}
 
-	// Filter to only keep articles from the target account
-	var matched []Article
 	target := strings.ToLower(accountName)
-	for _, a := range allArticles {
-		if strings.ToLower(a.AccountName) == target ||
-			strings.Contains(strings.ToLower(a.AccountName), target) ||
-			strings.Contains(target, strings.ToLower(a.AccountName)) {
-			matched = append(matched, a)
+
+	for _, tsn := range timeRanges {
+		searchURL := fmt.Sprintf("%s/weixin?type=2&query=%s&page=1&tsn=%s",
+			SogouBaseURL, url.QueryEscape(accountName), tsn)
+
+		body, err := c.get(searchURL)
+		if err != nil {
+			return nil, fmt.Errorf("search articles for account: %w", err)
+		}
+
+		allArticles, err := parseArticleResults(body)
+		if err != nil {
+			return nil, err
+		}
+
+		// Filter to only keep articles from the target account
+		var matched []Article
+		for _, a := range allArticles {
+			name := strings.ToLower(a.AccountName)
+			if name == target ||
+				strings.Contains(name, target) ||
+				strings.Contains(target, name) {
+				matched = append(matched, a)
+			}
+		}
+
+		if len(matched) > 0 {
+			return matched, nil
 		}
 	}
 
-	// If strict matching found nothing, return all results (the keyword
-	// search already scoped them to be relevant to the account name).
-	if len(matched) == 0 {
-		return allArticles, nil
+	return nil, fmt.Errorf("no articles found for account %q", accountName)
+}
+
+// parseArticleResults extracts articles from a Sogou search result HTML page.
+func parseArticleResults(body []byte) ([]Article, error) {
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return nil, fmt.Errorf("parse HTML: %w", err)
 	}
-	return matched, nil
+
+	var articles []Article
+
+	doc.Find("div.txt-box").Each(func(i int, s *goquery.Selection) {
+		article := Article{}
+
+		titleEl := s.Find("h3 a")
+		article.Title = strings.TrimSpace(titleEl.Text())
+		if href, exists := titleEl.Attr("href"); exists {
+			article.URL = href
+		}
+
+		accountEl := s.Find("div.s-p a[data-z]")
+		if accountEl.Length() == 0 {
+			accountEl = s.Find("div.s-p a")
+		}
+		article.AccountName = strings.TrimSpace(accountEl.Text())
+
+		summaryEl := s.Find("p.txt-info")
+		article.Summary = strings.TrimSpace(summaryEl.Text())
+
+		dateEl := s.Find("span.s2")
+		if dateEl.Length() == 0 {
+			dateEl = s.Find("div.s-p span")
+		}
+		article.PublishDate = strings.TrimSpace(dateEl.Text())
+
+		if article.Title != "" {
+			articles = append(articles, article)
+		}
+	})
+
+	// Fallback: try alternative selector
+	if len(articles) == 0 {
+		doc.Find("ul.news-list li").Each(func(i int, s *goquery.Selection) {
+			article := Article{}
+			titleEl := s.Find("h3 a")
+			article.Title = strings.TrimSpace(titleEl.Text())
+			if href, exists := titleEl.Attr("href"); exists {
+				article.URL = href
+			}
+			article.Summary = strings.TrimSpace(s.Find("p.txt-info").Text())
+			article.AccountName = strings.TrimSpace(s.Find("a.account").Text())
+
+			if article.Title != "" {
+				articles = append(articles, article)
+			}
+		})
+	}
+
+	// Post-process
+	for i := range articles {
+		articles[i].URL = fixURL(articles[i].URL)
+		articles[i].PublishDate = fixDate(articles[i].PublishDate)
+	}
+
+	return articles, nil
 }
 
 // SearchAccounts searches for WeChat official accounts via Sogou WeChat search.
