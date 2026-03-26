@@ -62,6 +62,7 @@ func fixDate(raw string) string {
 // GetAccountArticles searches for recent articles from a specific WeChat official account.
 // It uses Sogou article search (type=2) with the account name as keyword,
 // then filters results to only include articles from the matching account.
+// For each article, it fetches the actual article page to extract the real publish date.
 func (c *Client) GetAccountArticles(ctx context.Context, accountName string) ([]Article, error) {
 	allArticles, err := c.SearchArticles(ctx, accountName, 1)
 	if err != nil {
@@ -82,9 +83,58 @@ func (c *Client) GetAccountArticles(ctx context.Context, accountName string) ([]
 
 	// If strict matching found nothing, return all results
 	if len(matched) == 0 {
-		return allArticles, nil
+		matched = allArticles
 	}
+
+	// Enrich each article with the real publish date from the actual article page
+	for i := range matched {
+		realDate := c.fetchRealPublishDate(matched[i].URL)
+		if realDate != "" {
+			matched[i].PublishDate = realDate
+		}
+	}
+
 	return matched, nil
+}
+
+// fetchRealPublishDate resolves a Sogou redirect URL and extracts the real
+// publish date from the mp.weixin.qq.com article page.
+func (c *Client) fetchRealPublishDate(articleURL string) string {
+	if articleURL == "" {
+		return ""
+	}
+
+	// Resolve Sogou redirect link to get the real URL
+	if strings.Contains(articleURL, "weixin.sogou.com") {
+		realURL, err := c.ResolveSogouLink(articleURL)
+		if err != nil {
+			return ""
+		}
+		articleURL = realURL
+	}
+
+	body, err := c.get(articleURL)
+	if err != nil {
+		return ""
+	}
+
+	htmlStr := string(body)
+
+	// Try var publish_time = "2026-03-25"
+	if m := publishDateRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+		return m[1]
+	}
+
+	// Try #publish_time element
+	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	if t := strings.TrimSpace(doc.Find("#publish_time").Text()); t != "" {
+		return t
+	}
+
+	return ""
 }
 
 // parseArticleResults extracts articles from a Sogou search result HTML page.
