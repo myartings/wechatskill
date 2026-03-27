@@ -1,0 +1,9 @@
+{
+  "name": "wechat",
+  "version": "1.0.0",
+  "description": "微信公众号文章搜索助手：搜索文章、获取全文",
+  "author": { "name": "myartings" },
+  "repository": "https://github.com/myartings/wechatskill",
+  "license": "MIT",
+  "keywords": ["wechat", "微信", "公众号"]
+}
