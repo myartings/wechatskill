@@ -10,7 +10,7 @@ description: |
 
 ## Skill 目录
 
-`SKILL_DIR`：`${CLAUDE_PLUGIN_ROOT}` 或 `~/.openclaw/skills/wechat` 或 `~/.claude/skills/wechat`，取实际存在的路径。
+`SKILL_DIR`：`~/.claude/skills/wechat` 或 `~/.openclaw/skills/wechat`，取实际存在的路径。
 
 `P` 代表 `python3 <SKILL_DIR>/scripts/wechat_client.py`。
 
