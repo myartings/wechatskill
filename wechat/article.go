@@ -5,7 +5,9 @@ import (
 	"context"
 	"fmt"
 	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/PuerkitoBio/goquery"
 )
@@ -87,6 +89,19 @@ func (c *Client) GetArticleContent(ctx context.Context, articleURL string) (*Art
 	// === Publish date ===
 	if m := publishDateRe.FindStringSubmatch(htmlStr); len(m) > 1 {
 		detail.PublishDate = m[1]
+	}
+	if detail.PublishDate == "" {
+		if m := createTimeRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+			detail.PublishDate = m[1]
+		}
+	}
+	if detail.PublishDate == "" {
+		if m := varCreateTimeRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+			ts, err := strconv.ParseInt(m[1], 10, 64)
+			if err == nil {
+				detail.PublishDate = time.Unix(ts, 0).Format("2006-01-02 15:04")
+			}
+		}
 	}
 	if detail.PublishDate == "" {
 		detail.PublishDate = strings.TrimSpace(doc.Find("#publish_time").Text())

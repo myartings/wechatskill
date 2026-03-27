@@ -14,9 +14,10 @@ import (
 )
 
 var (
-	timeConvertRe  = regexp.MustCompile(`timeConvert\('(\d+)'\)`)
-	createTimeRe   = regexp.MustCompile(`create_time:\s*JsDecode\('([^']+)'\)`)
-	oriCreateTimeRe = regexp.MustCompile(`ori_create_time:\s*'(\d+)'`)
+	timeConvertRe    = regexp.MustCompile(`timeConvert\('(\d+)'\)`)
+	createTimeRe     = regexp.MustCompile(`create_time:\s*JsDecode\('([^']+)'\)`)
+	varCreateTimeRe  = regexp.MustCompile(`var\s+create_time\s*=\s*"(\d+)"`)
+	oriCreateTimeRe  = regexp.MustCompile(`ori_create_time:\s*'(\d+)'`)
 )
 
 // SearchArticles searches for WeChat articles via Sogou WeChat search.
@@ -132,6 +133,14 @@ func (c *Client) fetchRealPublishDate(articleURL string) string {
 	// Try create_time: JsDecode('2026-03-25 14:19')
 	if m := createTimeRe.FindStringSubmatch(htmlStr); len(m) > 1 {
 		return m[1]
+	}
+
+	// Try var create_time = "1774536479" * 1; (unix timestamp as string)
+	if m := varCreateTimeRe.FindStringSubmatch(htmlStr); len(m) > 1 {
+		ts, err := strconv.ParseInt(m[1], 10, 64)
+		if err == nil {
+			return time.Unix(ts, 0).Format("2006-01-02 15:04")
+		}
 	}
 
 	// Try ori_create_time: '1770877140' (unix timestamp)
