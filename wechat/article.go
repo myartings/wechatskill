@@ -42,6 +42,12 @@ func (c *Client) GetArticleContent(ctx context.Context, articleURL string) (*Art
 	}
 
 	htmlStr := string(body)
+
+	// Detect WeChat anti-crawler verification page
+	if strings.Contains(htmlStr, "环境异常") || strings.Contains(htmlStr, "操作频繁") {
+		return nil, fmt.Errorf("微信环境异常：当前 IP 被微信限制，需要完成人机验证才能继续访问。建议：1) 稍后重试 2) 通过代理换 IP 3) 让用户直接复制文章内容")
+	}
+
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(body))
 	if err != nil {
 		return nil, fmt.Errorf("parse article HTML: %w", err)
