@@ -1,3 +1,9 @@
+# Archived — maintenance moved to Agent Skill Registry
+
+Archived on 2026-10-19. Use [the maintained wechat skill](https://github.com/myartings-lab/agent-skill-registry/tree/main/skills/wechat) for current source, installation and updates. This repository is historical reference only. Existing services are not stopped or uninstalled by archiving.
+
+---
+
 # WeChat Official Account MCP Server
 
 微信公众号文章搜索 MCP 服务器 + OpenClaw Skill。
